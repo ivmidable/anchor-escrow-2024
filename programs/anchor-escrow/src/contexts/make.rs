@@ -1,6 +1,9 @@
-use anchor_lang::prelude::*;
-use anchor_spl::{token::{Mint, TokenAccount, Token, Transfer, transfer}, associated_token::AssociatedToken};
 use crate::state::Escrow;
+use anchor_lang::prelude::*;
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{transfer, Mint, Token, TokenAccount, Transfer},
+};
 
 #[derive(Accounts)]
 #[instruction(seed: u64)]
@@ -22,7 +25,6 @@ pub struct Make<'info> {
         seeds=[b"escrow", maker.key().as_ref(), seed.to_le_bytes().as_ref()],
         bump
     )]
-
     pub escrow: Account<'info, Escrow>,
     #[account(
         init,
@@ -33,17 +35,25 @@ pub struct Make<'info> {
     pub vault: Account<'info, TokenAccount>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub token_program: Program<'info, Token>,
-    pub system_program: Program<'info, System>
+    pub system_program: Program<'info, System>,
 }
 
 impl<'info> Make<'info> {
-    pub fn save_escrow(&mut self, seed: u64, receive: u64, bumps: &MakeBumps) -> Result<()> {
+    pub fn save_escrow(
+        &mut self,
+        seed: u64,
+        deposit: u64,
+        receive: u64,
+        bumps: &MakeBumps,
+    ) -> Result<()> {
         self.escrow.set_inner(Escrow {
             seed,
+            maker: self.maker.key(),
             mint_a: self.mint_a.key(),
             mint_b: self.mint_b.key(),
+            deposit,
             receive,
-            bump: bumps.escrow
+            bump: bumps.escrow,
         });
         Ok(())
     }
@@ -52,13 +62,10 @@ impl<'info> Make<'info> {
         let transfer_accounts = Transfer {
             from: self.maker_ata_a.to_account_info(),
             to: self.vault.to_account_info(),
-            authority: self.maker.to_account_info()
+            authority: self.maker.to_account_info(),
         };
 
-        let cpi_ctx = CpiContext::new(
-            self.token_program.to_account_info(), 
-            transfer_accounts
-        );
+        let cpi_ctx = CpiContext::new(self.token_program.to_account_info(), transfer_accounts);
 
         transfer(cpi_ctx, deposit)
     }

@@ -1,6 +1,9 @@
+use crate::{errors::EscrowError, state::Escrow};
 use anchor_lang::prelude::*;
-use anchor_spl::{token::{Mint, TokenAccount, Token, Transfer, transfer, CloseAccount, close_account}, associated_token::AssociatedToken};
-use crate::state::Escrow;
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{close_account, transfer, CloseAccount, Mint, Token, TokenAccount, Transfer},
+};
 
 #[derive(Accounts)]
 pub struct Take<'info> {
@@ -46,7 +49,7 @@ pub struct Take<'info> {
     pub vault: Account<'info, TokenAccount>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub token_program: Program<'info, Token>,
-    pub system_program: Program<'info, System>
+    pub system_program: Program<'info, System>,
 }
 
 impl<'info> Take<'info> {
@@ -54,37 +57,35 @@ impl<'info> Take<'info> {
         let transfer_accounts = Transfer {
             from: self.taker_ata_b.to_account_info(),
             to: self.maker_ata_b.to_account_info(),
-            authority: self.taker.to_account_info()
+            authority: self.taker.to_account_info(),
         };
 
-        let cpi_ctx = CpiContext::new(
-            self.token_program.to_account_info(), 
-            transfer_accounts
-        );
+        let cpi_ctx = CpiContext::new(self.token_program.to_account_info(), transfer_accounts);
 
         transfer(cpi_ctx, self.escrow.receive)
     }
 
     pub fn withdraw_and_close_vault(&mut self) -> Result<()> {
-        let signer_seeds: [&[&[u8]];1] = [
-            &[
-                b"escrow", 
-                self.maker.to_account_info().key.as_ref(), 
-                &self.escrow.seed.to_le_bytes()[..],
-                &[self.escrow.bump]
-            ]
-        ];
+        if self.vault.amount < self.escrow.deposit {
+            return Err(EscrowError::VaultAndEscrowInvalidAmount.into());
+        }
+        let signer_seeds: [&[&[u8]]; 1] = [&[
+            b"escrow",
+            self.maker.to_account_info().key.as_ref(),
+            &self.escrow.seed.to_le_bytes()[..],
+            &[self.escrow.bump],
+        ]];
 
         let accounts = Transfer {
             from: self.vault.to_account_info(),
             to: self.taker_ata_a.to_account_info(),
-            authority: self.escrow.to_account_info()
+            authority: self.escrow.to_account_info(),
         };
 
         let ctx = CpiContext::new_with_signer(
-            self.token_program.to_account_info(), 
+            self.token_program.to_account_info(),
             accounts,
-            &signer_seeds
+            &signer_seeds,
         );
 
         transfer(ctx, self.vault.amount)?;
@@ -92,13 +93,13 @@ impl<'info> Take<'info> {
         let accounts = CloseAccount {
             account: self.vault.to_account_info(),
             destination: self.taker.to_account_info(),
-            authority: self.escrow.to_account_info()
+            authority: self.escrow.to_account_info(),
         };
 
         let ctx = CpiContext::new_with_signer(
-            self.token_program.to_account_info(), 
+            self.token_program.to_account_info(),
             accounts,
-            &signer_seeds
+            &signer_seeds,
         );
 
         close_account(ctx)
