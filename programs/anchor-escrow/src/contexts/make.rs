@@ -2,7 +2,7 @@ use crate::state::Escrow;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token::{transfer, Mint, Token, TokenAccount, Transfer},
+    token_interface::{self, TokenInterface,transfer_checked, Mint, TokenAccount, TransferChecked}
 };
 
 #[derive(Accounts)]
@@ -10,14 +10,14 @@ use anchor_spl::{
 pub struct Make<'info> {
     #[account(mut)]
     pub maker: Signer<'info>,
-    pub mint_a: Account<'info, Mint>,
-    pub mint_b: Account<'info, Mint>,
+    pub mint_a: InterfaceAccount<'info, Mint>,
+    pub mint_b: InterfaceAccount<'info, Mint>,
     #[account(
         mut,
         associated_token::mint = mint_a,
         associated_token::authority = maker
     )]
-    pub maker_ata_a: Account<'info, TokenAccount>,
+    pub maker_ata_a: InterfaceAccount<'info, TokenAccount>,
     #[account(
         init,
         payer = maker,
@@ -32,9 +32,9 @@ pub struct Make<'info> {
         associated_token::mint = mint_a,
         associated_token::authority = escrow
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
     pub associated_token_program: Program<'info, AssociatedToken>,
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
 
@@ -59,14 +59,15 @@ impl<'info> Make<'info> {
     }
 
     pub fn deposit(&mut self, deposit: u64) -> Result<()> {
-        let transfer_accounts = Transfer {
+        let transfer_accounts = TransferChecked {
             from: self.maker_ata_a.to_account_info(),
             to: self.vault.to_account_info(),
             authority: self.maker.to_account_info(),
+            mint: self.mint_a.to_account_info(),
         };
 
         let cpi_ctx = CpiContext::new(self.token_program.to_account_info(), transfer_accounts);
 
-        transfer(cpi_ctx, deposit)
+        transfer_checked(cpi_ctx, deposit, self.mint_a.decimals)
     }
 }
